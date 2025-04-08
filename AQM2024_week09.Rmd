@@ -1,0 +1,591 @@
+---
+title: "AQM Week 09 -- Multinomial Choice Models"
+author: 
+  - Oliver Rittmann
+date: "April 25, 2024"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    css: css/lab.css
+  html_notebook:
+    toc: true
+    toc_float: true
+    css: css/lab.css
+  pdf_document:
+    toc: yes
+header-includes:
+   - \usepackage[default]{sourcesanspro}
+   - \usepackage[T1]{fontenc}
+mainfont: SourceSansPro
+---
+
+```{r setup}
+# The first line sets an option for the final document that can be produced from
+# the .Rmd file. Don't worry about it.
+knitr::opts_chunk$set(echo = TRUE)
+
+# First you define which packages you need for your analysis and assign it to 
+# the p_needed object. 
+p_needed <-
+  c("viridis", "knitr", "MASS", "pROC", "nnet")
+
+# Now you check which packages are already installed on your computer.
+# The function installed.packages() returns a vector with all the installed 
+# packages.
+packages <- rownames(installed.packages())
+# Then you check which of the packages you need are not installed on your 
+# computer yet. Essentially you compare the vector p_needed with the vector
+# packages. The result of this comparison is assigned to p_to_install.
+p_to_install <- p_needed[!(p_needed %in% packages)]
+# If at least one element is in p_to_install you then install those missing
+# packages.
+if (length(p_to_install) > 0) {
+  install.packages(p_to_install)
+}
+# Now that all packages are installed on the computer, you can load them for
+# this project. Additionally the expression returns whether the packages were
+# successfully loaded.
+sapply(p_needed, require, character.only = TRUE)
+```
+
+---
+
+## Before we get started
+
+If you are searching for reseources on how to organize the data for your term paper: Take a look at this blog post Denis Cohen, Cosima Meyer, Marcel Neunhoeffer and I wrote some years ago: [Efficient Data Management in R](https://www.mzes.uni-mannheim.de/socialsciencedatalab/article/efficient-data-r/). The interesting part starts at "Data Management and Data Manipulation" (you know git by now). We introduce the basic tools you need to manage your data using either base R or tidyverse and then walk through one example where we create an analysis data frame from multiple sources. All the code and data is readily available on github so you can work through the code by yourself. 
+
+Probably even better, there is a fairly new open-access book by Nils B. Weidmann on data management: [Data Management for Social Scientists](https://www.cambridge.org/core/books/data-management-for-social-scientists/33356BF6DE034B25239DCF7C436CBFCD). There is also an accompanying [website](https://dmbook.org) with data, additional instructions, and exercises.
+
+**For your term paper:** If you are facing a concrete problem that you cannot solve: Do not hesitate to ask me for help.
+
+---
+
+## Program for today
+
+In this session, we will learn about:
+
+1. Multinomial Choice Models
+  + The log-likelihood function of multinomial choice models
+  + Implementation in `R`
+  + Simulating quantities of interest from multinomial choice models.
+
+---
+
+## Multinomial Choice
+
+Our main goal for today is to estimate the conditional probability of various discrete and unordered choices, based on a solid foundation in behavioral theory. 
+
+In surveys, respondents are often asked which party they would vote for in an upcoming election or which party they have voted for in the previous election. As an example, consider the following question:
+
+> What party did you vote for in the last election?
+
+**Why can't we use our Ordered Logit Model?**
+
+Today, we are going to analyze vote choice data from the Netherlands.
+
+```{r, echo=F} 
+load("raw-data/Nethvote.RData")
+
+df <- Nethvote
+
+head(df)
+
+barplot(table(df$vote),
+        main = "Distribution of Vote Choice",
+        font.main = 1,
+        border = NA,
+        las = 1)
+
+```
+
+We will start with socio-demographic explanations today, and will compare them to issue voting explanations next week.
+
+To model the vote choice we assume that each voter has an utility $V_{ij}$ for each of the parties that are up for election $j \in (1, \ldots, J)$. 
+
+**Sociodemographic models** argue that these utilities are systematically influenced by sociodemocraphic factors, such as **income, class, religion, education, age or whether someone lives in an urban or rural area**.
+
+We define $X_i$ to be a $N \times k$ matrix in which each column stores the information about the individuals on the $k$ covariates (That sounds complicated but this really is just our usual matrix for our independent variables...). For this model we only use **chooser-specific data**. Thus, we can write down the utilities $V_{ij}$ as: 
+
+$$ V_{ij} = X_i\beta_j $$
+
+Let's focus on the indexation for a moment to get this straight:
+
+  + $i$ indicates individual observations, in our case voters.
+  + $j$ indicates choices of the outcome variable, in our case vote choices for different parties.
+  
+So what do we have here?
+
+  + $V_{ij}$: For each voter $i$, this formula computes utilities of voting for all parties $j$. This is the utility of voter $i$ to vote for the CDA, D66, PcdA, and VVD.
+  + $X_i$: This is just our matrix of covariates, i.e. information on income, class, religion, and so on for each voter $i$.
+  + $\beta_j$: $\beta$ is indexed by $j$. This is new! $j$ are the available choices. This means that we have one $\beta$ vector for each outcome choice. Why? Because different choices (voting for different parties) have varying utilities for voters. E.g. income may have a different effect on the utility of voting for a sociodemocratic party than it has on voting for a liberal party.
+  
+So how does $\beta_j$ now look like? We have four categories (CDA, D66, PvdA, VVD), thus $J=4$. Further, we have six independent variables (`relig`, `class`, `income`, `educ`, `age`, `urban`).
+
+$$
+\begin{aligned}
+  \beta & = 
+    \begin{pmatrix}
+    \beta_{11} & \beta_{12} & \beta_{13} & \beta_{14} & \beta_{15} & \beta_{16} &   \beta_{17}\\
+    \beta_{21} & \beta_{21} & \beta_{21} & \beta_{24} & \beta_{25} & \beta_{26} &   \beta_{27}\\
+    \beta_{31} & \beta_{31} & \beta_{31} & \beta_{34} & \beta_{35} & \beta_{36} &   \beta_{37}\\
+    \beta_{41} & \beta_{41} & \beta_{41} & \beta_{44} & \beta_{45} & \beta_{46} &   \beta_{47}\\
+    \end{pmatrix} \\
+    & =
+    \begin{pmatrix}
+    \beta_{\text{CDA, (int)}} & \beta_{\text{CDA, relig}} & \beta_{\text{CDA, class}} &   \beta_{\text{CDA, income}} & \beta_{\text{CDA, educ}} & \beta_{\text{CDA, age}} &   \beta_{\text{CDA, urban}} \\
+    \beta_{\text{D66, (int)}} & \beta_{\text{D66, relig}} & \beta_{\text{D66, class}} &   \beta_{\text{D66, income}} & \beta_{\text{D66, educ}} & \beta_{\text{D66, age}} &   \beta_{\text{D66, urban}} \\
+    \beta_{\text{PvdA, (int)}} & \beta_{\text{PvdA, relig}} & \beta_{\text{PvdA, class}} &   \beta_{\text{PvdA, income}} & \beta_{\text{PvdA, educ}} & \beta_{\text{PvdA, age}} &   \beta_{\text{PvdA, urban}} \\
+    \beta_{\text{VVD, (int)}} & \beta_{\text{VVD, relig}} & \beta_{\text{VVD, class}} &   \beta_{\text{VVD, income}} & \beta_{\text{VVD, educ}} & \beta_{\text{VVD, age}} &   \beta_{\text{VVD, urban}} \\
+    \end{pmatrix}
+\end{aligned}
+$$
+
+
+
+### The log-likelihood of the multinomial logit model
+
+Just like for the binary logit or ordered logit model we can derive the model using a random utility specification for each of the alternatives. You have done this in the lecture, so we will work with the result here. Given that each alternative $j$ has random utility $U_{ij} = V_{ij} + e_{ij}$, where $e_{ij}$ is a extreme value Type-1 distribution (a.k.a. Gumbel distribution), it can be shown that the choice probability for $j$ is:
+
+$$P(y_i=j) = \frac{exp[V_{ij}]}{\sum exp[V_{ik}]}$$
+
+Let's dismantel this to see what we have here:
+
+  + $P(y_i = j)$ is the probability of voter $i$ to vote for party $j$. Since we want to explain vote choice, this is exactly what we are interested in.
+  + $V_{ij}$ is the utility of voter $i$ to vote for party $j$. As we have seen above, we are parameterizing this utility as a function of sociodemographic variables.
+  + Finally, $\sum exp[V_{ik}]$ is the sum of all utilities of voter $i$ to vote for the $k$ available parties. We need to divide by this quantity so that all probabilites add up to one.
+
+The joined Log-Likelihood can be written out:
+
+$$ln L = \sum_{i=1}^N \sum_{j=1}^J ln (d_{ij} P(y_i=j))  $$
+
+where $d_{ij}$ is a dummy that is $1$ if $y_i = j$ else $0$ (just like for the ordered logit model -- in machine learning this type of encoding is often called one-hot encoding.).
+
+As seen above, we model the systematic component of the Utility $V_{ij}$ as a function of the chooser specific covariates $X$. 
+
+$$
+V_{ij} = X_i\beta_j
+$$
+
+To (statistically) identify the model we have to set one vector of $\beta_j$'s to zero. In other words, we choose one baseline category -- in our case a party. This is what will make it hard to interpret the coefficients. They always have to be interpreted relative to the baseline category. So as usual, we better simulate from it, but of course we need to estimate the model first.
+
+So if we set $\beta_j$ for $j=1$ to zero, the we are left with:
+
+$$
+\beta = \begin{pmatrix}
+  0 & 0 & 0 & 0 & 0 & 0 & 0 \\
+  \beta_{\text{D66, (int)}} & \beta_{\text{D66, relig}} & \beta_{\text{D66, class}} & \beta_{\text{D66, income}} & \beta_{\text{D66, educ}} & \beta_{\text{D66, age}} & \beta_{\text{D66, urban}} \\
+  \beta_{\text{PvdA, (int)}} & \beta_{\text{PvdA, relig}} & \beta_{\text{PvdA, class}} & \beta_{\text{PvdA, income}} & \beta_{\text{PvdA, educ}} & \beta_{\text{PvdA, age}} & \beta_{\text{PvdA, urban}} \\
+  \beta_{\text{VVD, (int)}} & \beta_{\text{VVD, relig}} & \beta_{\text{VVD, class}} & \beta_{\text{VVD, income}} & \beta_{\text{VVD, educ}} & \beta_{\text{VVD, age}} & \beta_{\text{VVD, urban}} \\
+  \end{pmatrix}
+$$
+
+Respectively, the matrix of utilities $V_{ij}$ looks like this:
+
+$$
+V_{ij} = \begin{pmatrix}
+  0 & V_{\text{1, D66}} & V_{\text{1, PvdA}} & V_{\text{1, VVD}} \\
+  0 & V_{\text{2, D66}} & V_{\text{2, PvdA}} & V_{\text{2, VVD}} \\
+  0 & V_{\text{3, D66}} & V_{\text{3, PvdA}} & V_{\text{3, VVD}} \\
+  ... & ... & ... & ... \\
+  0 & V_{\text{i, D66}} & V_{\text{i, PvdA}} & V_{\text{i, VVD}} \\
+  \end{pmatrix}
+$$
+
+### Implementation of the Multinomial Logit Model in R
+
+```{r The log-likelihood function in R}
+ll_mnl <- function(theta, X, Z) {
+  # declarations
+  k <- ncol(X) # k independent variables
+  J <- ncol(Z) # J choices in the dependent variable
+  
+  # create matrix of betas and set the first category to 0
+  beta <- matrix(0, 
+                 ncol = k, 
+                 nrow = J)
+  beta[-1, ] <- matrix(theta[1:(k * (J - 1))], 
+                       ncol = k, 
+                       byrow = T)
+  
+  # Systematic component: utilities
+  # X_i %*% beta_J in each row (i.e. for each available choice)
+  V <- apply(beta, 1, 
+             function(b) 
+               X %*% b)
+  
+  # Sum of exp(V)
+  Sexp <- apply(V, 1, function(v)
+    sum(exp(v)))
+  
+  # probabilities
+  P <- apply(V, 2, function(v)
+    exp(v) / Sexp)
+  
+  # log-likelihood
+  loglik <- sum(log(P[Z]))
+  return(loglik)
+}
+```
+
+To estimate the model we need to transform our dependent variable to the response matrix. We also need to create our matrix of covariates $X_i$.
+
+```{r Creating the response matrix} 
+cats <- sort(unique(df$vote))  # different categories
+J <- length(unique(df$vote))  # number of categories
+
+Z <- matrix(NA, 
+            nrow = length(df$vote), 
+            ncol = J)  # indicator matrix
+
+for (j in 1:J) {
+  Z[, j] <- df$vote == cats[j]
+}
+colnames(Z) <- cats
+
+# Sanity check
+head(Z)
+head(df$vote)
+
+# Prepare our usual matrix X
+# we include relig, class, income, educ, age, urban
+# those variables are in column 6 to 11 in our data frame
+X <- as.matrix(cbind(1, df[, 6:11]))
+```
+
+Now we have everything to estimate the model.
+
+```{r Optimize MNL} 
+# How many start values do we need?
+startvals <- rep(0, ncol(X) * (J - 1))
+
+# Let's check whether our function works.
+ll_mnl(startvals, X, Z)
+
+#
+res <- optim(
+  startvals,
+  ll_mnl,
+  X = X,
+  Z = Z,
+  method = "BFGS",
+  control = list(fnscale = -1, trace = TRUE),
+  hessian = TRUE
+)
+
+betaHat <- matrix(res$par,
+                  ncol = ncol(X),
+                  nrow = ncol(Z)-1,
+                  byrow = T)
+
+colnames(betaHat) <- c("(Intercept)", colnames(X)[2:ncol(X)])
+rownames(betaHat) <-  levels(df$vote)[2:ncol(Z)]
+
+
+se <-
+  matrix(sqrt(diag(solve(-res$hessian))),
+         ncol = ncol(X),
+         nrow = ncol(Z)-1,
+         byrow = T)
+colnames(se) <- c("(Intercept)", colnames(X)[2:7])
+rownames(se) <-  levels(df$vote)[2:4]
+
+betaHat
+se
+```
+
+As always it is a good idea to check how our function does as compared to functions already in R. We use the `multinom` function from the `nnet`package.
+
+```{r Check with built-in function}
+check <- multinom(vote ~ 
+                    relig + class + income + educ + age + urban, 
+                  data = df)
+summary(check)
+betaHat
+se
+```
+
+## Quantities of Interest
+
+As we can't directly interpret the coefficients we go back to calculating Quantities of Interest. We will use the Observed Value Approach again. You will see that simulating from the Multinomial Logit model will work similar to simulating from the Logit model.
+
+Let's suppose **we want to know how the probabilities to vote for a particular party change if a respondent is religious compared to a respondent who is not**. 
+
+```{r QoI for MNL} 
+# Get coefficients and the variance-covariance matrix for the simulation
+mu <- res$par
+varcov <- solve(-res$hessian)
+
+# Define nsim, J (number of categories) and k (number of independent variables)
+nsim <- 1000
+J <- length(unique(df$vote))  # Number of categories
+k <- ncol(X)
+
+# Set up the sampling distribution
+S <- mvrnorm(nsim, mu, varcov)
+
+# Store in an array similar to what we did in the ll function
+beta_S <- array(0, dim = c(J, k, nsim))
+
+# Check dimensions:
+dim(beta_S)
+
+# fill the array with the sampling distribution of betas
+for(sim in 1:nsim) {
+  beta_S[-1, ,sim] <- matrix(S[sim,], 
+                             ncol = k, 
+                             byrow = T)
+}
+
+
+# Set up your scenarios
+n_scenarios <- 2 # Number of scenarios
+
+cases <- array(NA, c(dim(X),
+                     n_scenarios))  
+
+cases[, , ] <- X
+
+sel <- which(colnames(X) == "relig")
+
+cases[, sel, 1] <- 0
+cases[, sel, 2] <- 1
+
+# Now our array V will have four (!) dimensions
+V <- V2 <-
+  array(NA, 
+        dim = c(nrow(X),       # number of observations
+                J,             # number of categories
+                nsim,          # number of simulations
+                n_scenarios))  # number of scenarios
+
+
+# Loop over the scenarios
+for(i in 1:n_scenarios){
+  V[,,,i] <- apply(beta_S[,,], c(1,3), 
+                   function(bs) cases[,,i] %*% bs)
+}
+
+# the apply command over more than two dimensions is hard!
+# maybe a nested loop is more intuitive to understand what is happening here:
+
+# 1) Loop over the scenarios
+for (i in 1:n_scenarios) {
+  # 2) in each scenario:
+  #    loop over the simulations
+  for (s in 1:nsim) {
+    # 3) in each scenario and simulation:
+    #    loop over the categories and calculate its utility
+    for (j in 1:J) {
+      # 4) calculate utility for the utility of 
+      #    - the current scenario
+      #    - based on the current set of simulated beta values
+      #    - for the current outcome category
+      
+      V2[,j,s,i] <- cases[,,i] %*% beta_S[j,,s]
+      
+      # cases[,,i] the i-th scenario that we specified
+      # beta_S[j,,s] is the s-th simulation of beta for category j 
+      # (remember: there's one set of beta for each category and each simulation)
+    }
+  }
+}
+
+# this gives us the same result as the apply procedure:
+all(V == V2)
+
+# Have a look at the dimensions
+dim(V)
+
+# Now we want to summarize over multiple dimensions
+Sexp <- apply(V, c(1,3,4), function(v) sum(exp(v)))
+
+dim(Sexp)
+
+# With V and Sexp we have everything to get P
+P <- array(NA, c(nsim, J, 2))
+
+for (scen in 1:n_scenarios) {
+  for (category in 1:J) {
+    P[, category, scen] <- 
+      apply(exp(V[, category, , scen]) / Sexp[, , scen], 2, mean)
+  }
+}
+
+# Summarize to get our quantities of interest
+
+# non-religious voters
+QoI0Mean <- apply(P[, , 1], 2, mean)
+QoI0CI <-
+  apply(P[, , 1], 2, function(x)
+    quantile(x, probs = c(0.025, 0.975)))
+
+# religious voters
+QoI1Mean <- apply(P[, , 2], 2, mean)
+QoI1CI <-
+  apply(P[, , 2], 2, function(x)
+    quantile(x, probs = c(0.025, 0.975)))
+
+partycolors <- c("mediumseagreen", 
+                 "green", 
+                 "red", 
+                 "orange")
+```
+
+That was a rough ride. Now all that's left is to present our Quantity of Interest in a way that other people can make sense of it.
+
+How about a plot?
+
+```{r Plotting a simple scenario}
+plot(
+  x = c(0.2, 0.4, 0.6, 0.8, 0.25, 0.45, 0.65, 0.85),
+  y = c(QoI0Mean, QoI1Mean),
+  xlim = c(0.15, 0.9),
+  ylim = c(-0.1, 0.65),
+  bty = "n",
+  xaxt = "n",
+  las = 1,
+  xlab = "",
+  ylab = "Predicted Probability of Voting for Party",
+  main = "Not religious and religious voters",
+  font.main = 1,
+  type = "n"
+)
+abline(h = seq(0, 0.6, 0.1),
+       col = adjustcolor("black", alpha = 0.2))
+points(
+  x = c(0.2, 0.4, 0.6, 0.8, 0.25, 0.45, 0.65, 0.85),
+  y = c(QoI0Mean, QoI1Mean),
+  pch = 19,
+  cex = 1,
+  col = partycolors
+)
+text(1,
+     x = c(0.2, 0.4, 0.6, 0.8, 0.25, 0.45, 0.65, 0.85),
+     y = rep(-0.01, 8),
+     labels = rep(c("not\nreligious", "religious"), each = 4),
+     srt = 90,
+     cex = 0.7)
+axis(1, 
+     at = c(0.225, 0.425, 0.625, 0.825),
+     labels = levels(df$vote),
+     tick = F)
+segments(
+  x0 = c(0.2, 0.4, 0.6, 0.8, 0.25, 0.45, 0.65, 0.85),
+  y0 = c(QoI0CI[1,], QoI1CI[1,]),
+  y1 = c(QoI0CI[2,], QoI1CI[2,]) ,
+  lwd = 6,
+  lend = 1,
+  col = adjustcolor(partycolors, alpha = 0.4)
+)
+abline(v = c(0.325, 0.525, 0.725),
+       lty = "dashed",
+       col = "lightgrey")
+```
+
+Of course we could also present it as a first difference between not religious and religious voters.
+
+```{r First Differences}
+# we substract religious from not religious
+QoIFD <- P[, , 2] - P[, , 1]
+
+QoIFDMean <- apply(QoIFD, 2, mean)
+
+QoIFDCI <-
+  apply(QoIFD, 2, function(x)
+    quantile(x, probs = c(0.025, 0.975)))
+
+
+plot(
+  x = c(0.2, 0.4, 0.6, 0.8),
+  y = QoIFDMean,
+  xlim = c(0.1, 0.9),
+  ylim = c(-0.5, 0.5),
+  bty = "n",
+  xaxt = "n",
+  las = 1,
+  xlab = "",
+  ylab = "First Difference",
+  main = "First Difference between religious and not religious voters",
+  font.main = 1,
+  type = "n"
+)
+abline(h = seq(-0.4, 0.4, 0.1),
+       col = adjustcolor("black", alpha = 0.2))
+abline(h = 0, lwd = 1, lty = "solid")
+points(
+  x = c(0.2, 0.4, 0.6, 0.8),
+  y = QoIFDMean,
+  pch = 19,
+  cex = 1,
+  col = partycolors
+)
+text(x = (c(0.2, 0.4, 0.6, 0.8) - 0.06),
+     y = QoIFDMean,
+     labels = levels(df$vote))
+segments(
+  x0 = c(0.2, 0.4, 0.6, 0.8),
+  y0 = QoIFDCI[1,],
+  y1 = QoIFDCI[2,],
+  lwd = 6,
+  lend = 1,
+  col = adjustcolor(partycolors, alpha = 0.4)
+)
+abline(v = c(0.3, 0.5, 0.7),
+       lty = "dashed",
+       col = "lightgrey")
+```
+
+With the plots, what can you say about the effect of being religious on vote choice?
+
+## Exercise: The observed value approach for a range of values
+
+Simulate predicted probabilities and the surrounding uncertainty using the observed value approach to visualize the **effect of income** (eg. a range of 10 values of income -- don't use more, ten will already take a little while to compute).
+
+```{r Exercise I, eval=F} 
+
+
+
+
+# Plot the results
+
+plot(
+  income_seq,
+  QoI_Mean[1,],
+  type = "n",
+  ylim = c(0, 0.65),
+  bty = "n",
+  ylab = "Predicted Probability of voting for Party",
+  xlab = "income Variable",
+  main = "The Effect of Income",
+  las = 1
+)
+
+for (i in 1:4) {
+  lines(income_seq, QoI_Mean[i,], 
+        col = partycolors[i],
+        lwd = 2)
+}
+
+for (i in 1:4) {
+  polygon(
+    c(rev(income_seq), income_seq),
+    c(rev(QoI_CI[1, i,]), QoI_CI[2, i,]),
+    col = adjustcolor(partycolors[i], alpha = 0.2) ,
+    border = NA
+  )
+}
+
+legend(
+  "topright",
+  legend = levels(df$vote),
+  lty = 1,
+  col = partycolors,
+  bty = "n"
+)
+```
+
+
+## Concluding Remarks
+
+No homework this week! But homework 5 will be challenging and reviewing this week's material early may be a good idea.
