@@ -545,14 +545,18 @@ Simulate predicted probabilities and the surrounding uncertainty using the obser
 
 ```{r Exercise I, eval=F} 
 
+incomeScenario <- ??
+
+
+  
+  
 
 
 
 # Plot the results
-
 plot(
-  income_seq,
-  QoI_Mean[1,],
+  incomeScenario,
+  QoImean[1,],
   type = "n",
   ylim = c(0, 0.65),
   bty = "n",
@@ -563,18 +567,19 @@ plot(
 )
 
 for (i in 1:4) {
-  lines(income_seq, QoI_Mean[i,], 
-        col = partycolors[i],
-        lwd = 2)
+  polygon(
+    c(rev(incomeScenario), incomeScenario),
+    c(rev(QoICI[1, i,]), QoICI[2, i,]),
+    col = adjustcolor(partycolors[i], alpha = 0.2),
+    border = NA
+  )
 }
 
 for (i in 1:4) {
-  polygon(
-    c(rev(income_seq), income_seq),
-    c(rev(QoI_CI[1, i,]), QoI_CI[2, i,]),
-    col = adjustcolor(partycolors[i], alpha = 0.2) ,
-    border = NA
-  )
+  lines(x = incomeScenario, 
+        y = QoImean[i,], 
+        col = partycolors[i],
+        lwd = 2)
 }
 
 legend(
@@ -584,6 +589,8 @@ legend(
   col = partycolors,
   bty = "n"
 )
+
+
 ```
 
 
