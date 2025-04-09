@@ -54,7 +54,7 @@ sapply(p_needed, require, character.only = TRUE)
 
 ## Before we get started
 
-If you are searching for reseources on how to organize the data for your term paper: Take a look at this blog post Denis Cohen, Cosima Meyer, Marcel Neunhoeffer and I wrote some years ago: [Efficient Data Management in R](https://www.mzes.uni-mannheim.de/socialsciencedatalab/article/efficient-data-r/). The interesting part starts at "Data Management and Data Manipulation" (you know git by now). We introduce the basic tools you need to manage your data using either base R or tidyverse and then walk through one example where we create an analysis data frame from multiple sources. All the code and data is readily available on github so you can work through the code by yourself. 
+If you are searching for reseources on how to organize the data for your term paper: Take a look at this blog post Denis Cohen, Cosima Meyer, Marcel Neunhoeffer and Oliver Rittmann (former QM and AQM tutors) wrote some years ago: [Efficient Data Management in R](https://www.mzes.uni-mannheim.de/socialsciencedatalab/article/efficient-data-r/). The interesting part starts at "Data Management and Data Manipulation" (you know git by now). They introduce the basic tools you need to manage your data using either base R or tidyverse and then walk through one example where they create an analysis data frame from multiple sources. All the code and data is readily available on GitHub so you can work through the code by yourself. 
 
 Probably even better, there is a fairly new open-access book by Nils B. Weidmann on data management: [Data Management for Social Scientists](https://www.cambridge.org/core/books/data-management-for-social-scientists/33356BF6DE034B25239DCF7C436CBFCD). There is also an accompanying [website](https://dmbook.org) with data, additional instructions, and exercises.
 
@@ -150,7 +150,7 @@ Just like for the binary logit or ordered logit model we can derive the model us
 
 $$P(y_i=j) = \frac{exp[V_{ij}]}{\sum exp[V_{ik}]}$$
 
-Let's dismantel this to see what we have here:
+Let's dismantle this to see what we have here:
 
   + $P(y_i = j)$ is the probability of voter $i$ to vote for party $j$. Since we want to explain vote choice, this is exactly what we are interested in.
   + $V_{ij}$ is the utility of voter $i$ to vote for party $j$. As we have seen above, we are parameterizing this utility as a function of sociodemographic variables.
