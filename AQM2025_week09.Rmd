@@ -119,7 +119,7 @@ So what do we have here?
 
   + $V_{ij}$: For each voter $i$, this formula computes utilities of voting for all parties $j$. This is the utility of voter $i$ to vote for the CDA, D66, PcdA, and VVD.
   + $X_i$: This is just our matrix of covariates, i.e. information on income, class, religion, and so on for each voter $i$.
-  + $\beta_j$: $\beta$ is indexed by $j$. This is new! $j$ are the available choices. This means that we have one $\beta$ vector for each outcome choice. Why? Because different choices (voting for different parties) have varying utilities for voters. E.g. income may have a different effect on the utility of voting for a sociodemocratic party than it has on voting for a liberal party.
+  + $\beta_j$: $\beta$ is indexed by $j$. This is new! $j$ are the available choices. This means that we have one $\beta$ vector for each outcome choice. Why? Because different choices (voting for different parties) have varying utilities for voters. E.g. income may have a different effect on the utility of voting for a social democratic party than it has on voting for a liberal party.
   
 So how does $\beta_j$ now look like? We have four categories (CDA, D66, PvdA, VVD), thus $J=4$. Further, we have six independent variables (`relig`, `class`, `income`, `educ`, `age`, `urban`).
 
